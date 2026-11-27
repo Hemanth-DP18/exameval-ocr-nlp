@@ -14,16 +14,51 @@ This repository is separate from Clutch Arena. It does not modify or depend on t
 - Searchable evaluation history and student directory.
 - Teacher mark editing, save-review and finalize workflow.
 - CSV export of an individual report.
+- Installable offline-capable web app shell; the same-origin local deployment serves both UI and API.
+- Local Docker deployment with persistent data stored in ./data.
 
-## Important evaluation limitation
+## Offline use (recommended for a standalone computer)
 
-The current scoring method is a simple word-overlap/F1 baseline. It is **not validated semantic NLP** and must not be treated as an automatic grading decision. OCR can misread handwriting. Similarity scoring may fail to recognize equivalent wording, numerical reasoning, units, calculation steps and diagrams. A teacher must inspect the extracted content and confirm each criterion. This prototype has not been validated for high-stakes assessment.
+The easiest offline setup is Docker Compose. You need internet **once** to download/build the application image and its dependencies. After the image is built, the complete local application (web interface, API, OCR engine and PDF renderer) runs on the computer without an internet connection.
 
-## Local development
+1. Install Docker Engine and the Docker Compose plugin on the computer.
+2. Clone this repository, then open a terminal in the repository folder.
+3. Create your private local settings file:
 
-### Backend
+   ```bash
+   cp .env.example .env
+   nano .env
+   ```
 
-Requirements: Python 3.11+, Tesseract OCR and Poppler utilities (for scanned PDFs).
+   Replace both example values with private, long random strings. Do not share the .env file or upload it to GitHub.
+
+4. Build the app and start it (first run needs internet):
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. Open **http://localhost:8000** in the browser and sign in with the teacher password from .env.
+6. Once the image is built and the app has started successfully, disconnect the computer from the internet and use **http://localhost:8000** as usual. Keep the computer and browser running locally; the app does not need Railway or Vercel for this mode.
+
+Useful commands:
+
+```bash
+docker compose logs -f
+docker compose stop
+docker compose start
+docker compose down
+```
+
+The SQLite database is stored in the local `./data/` folder and survives container restarts and `docker compose down`. Back up this folder regularly to another secure drive. Do not delete it if you want to keep saved student records.
+
+The browser caches the application shell for offline reopening, but it deliberately does **not** cache authenticated API responses or student records. In local mode, the API and database run on the same computer, so evaluation and history continue to work without internet. The first successful page load is needed to install the service worker.
+
+## Local development without Docker
+
+Requirements: Python 3.11+, Node.js 20+, Tesseract OCR and Poppler utilities (for scanned PDFs).
+
+Backend:
 
 ```bash
 cd backend
@@ -31,26 +66,26 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export EXAMEVAL_ADMIN_PASSWORD='choose-a-long-private-password'
-export DB_PATH='./exameval.db'
+export EXAMEVAL_TOKEN_SECRET='choose-a-long-random-secret'
+export DB_PATH='../data/exameval.db'
 uvicorn main:app --reload --port 8000
 ```
 
-### Frontend
+Frontend (in a second terminal):
 
 ```bash
 cd frontend
 npm install
+npm run dev
 ```
 
-Create `frontend/.env.local`:
+Vite proxies API requests to the local backend. Open the development URL shown by Vite. The production-style offline experience is served from **http://localhost:8000** by the Docker image.
 
-```env
-VITE_API_URL=http://localhost:8000
-```
+## Important evaluation limitation
 
-Then run `npm run dev`.
+The current scoring method is a simple word-overlap/F1 baseline. It is **not validated semantic NLP** and must not be treated as an automatic grading decision. OCR can misread handwriting. Similarity scoring may fail to recognize equivalent wording, numerical reasoning, units, calculation steps and diagrams. A teacher must inspect the extracted content and confirm each criterion. This prototype has not been validated for high-stakes assessment.
 
-## Production deployment
+## Production deployment (optional; requires internet)
 
 ### Railway backend
 
@@ -59,7 +94,7 @@ Then run `npm run dev`.
 - Set these service variables in Railway:
   - `DB_PATH=/data/exameval.db`
   - `EXAMEVAL_ADMIN_PASSWORD` — a strong private teacher password. Never commit it to GitHub or put it in frontend variables.
-  - `EXAMEVAL_TOKEN_SECRET` — optional; if omitted, the service generates a process-local signing secret, which invalidates sessions after a restart.
+  - `EXAMEVAL_TOKEN_SECRET` — set a stable random secret so sessions survive service restarts.
   - `CORS_ORIGINS` — comma-separated allowed frontend origins, e.g. `https://exameval-ocr-nlp.vercel.app`.
 - The `/health` endpoint is public and contains no student data.
 
@@ -71,7 +106,7 @@ Then run `npm run dev`.
 
 ## Data and privacy
 
-The SQLite database stores student identifiers, assessment metadata, extracted document text, marks and review status on the Railway volume. Raw uploaded files are processed in memory and are not retained as original files. The API requires teacher authentication for student and evaluation data. Keep the teacher password private, restrict CORS to the real frontend origin, and protect access to the hosting accounts and backups. This prototype does not yet provide multiple teacher accounts, role-based access, institution-level tenancy or automated backups.
+The SQLite database stores student identifiers, assessment metadata, extracted document text, marks and review status. In local mode it is stored under `./data` on the computer. Raw uploaded files are processed in memory and are not retained as original files. The API requires teacher authentication for student and evaluation data. Keep the teacher password private, restrict access to the computer and backups, and protect hosting accounts if using online mode. The browser service worker does not store private student API responses. This prototype does not yet provide multiple teacher accounts, role-based access, institution-level tenancy or automated backups.
 
 ## API overview
 
