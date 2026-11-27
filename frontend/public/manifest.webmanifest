@@ -1,0 +1,13 @@
+{
+  "name": "ExamEval — Assessment Studio",
+  "short_name": "ExamEval",
+  "description": "Offline-capable OCR-assisted exam evaluation for teachers.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fb",
+  "theme_color": "#101b35",
+  "icons": [
+    {"src": "/icons/exameval.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}
