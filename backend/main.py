@@ -1,4 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from pypdf import PdfReader
@@ -11,6 +13,7 @@ app=FastAPI(title="ExamEval API",version="1.0.0")
 origins=[x.strip() for x in os.getenv("CORS_ORIGINS","").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","PATCH","OPTIONS"],allow_headers=["Authorization","Content-Type"])
 DB_PATH=os.getenv("DB_PATH","./exameval.db")
+STATIC_DIR=Path(__file__).parent / "static"
 ADMIN_PASSWORD=os.getenv("EXAMEVAL_ADMIN_PASSWORD","")
 TOKEN_SECRET=os.getenv("EXAMEVAL_TOKEN_SECRET") or secrets.token_urlsafe(32)
 signer=URLSafeTimedSerializer(TOKEN_SECRET,salt="exameval-teacher-session")
@@ -54,7 +57,10 @@ def require_teacher(authorization: str=Header(default="")):
     return True
 
 @app.get("/")
-def root(): return {"service":"ExamEval API","version":"1.0.0","docs":"/docs"}
+def root():
+    index=STATIC_DIR / "index.html"
+    if index.is_file(): return FileResponse(index)
+    return {"service":"ExamEval API","version":app.version,"docs":"/docs","offline_mode":"Use the bundled local web app or run the frontend separately."}
 @app.get("/health")
 def health():
     checks={"database":False,"ocr":False,"pdf_renderer":False}
@@ -260,3 +266,8 @@ def review_evaluation(evaluation_id:int,payload:dict,_:bool=Depends(require_teac
         updated=db.execute("""SELECT e.*,s.name,s.roll_no FROM evaluations e JOIN students s ON s.id=e.student_id WHERE e.id=?""",(evaluation_id,)).fetchone()
     return evaluation_dict(updated)
 
+
+
+# Serve the bundled web application from the same local server. API routes above take precedence.
+if STATIC_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="frontend")
