@@ -16,7 +16,11 @@ if (-not (Test-Path ".env")) {
     Write-Host "Use a teacher password of at least 12 characters." -ForegroundColor Red
     exit 1
   }
-  $secret = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(48))
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  $randomBytes = New-Object byte[] 48
+  $rng.GetBytes($randomBytes)
+  $secret = [Convert]::ToBase64String($randomBytes)
+  $rng.Dispose()
   @(
     "EXAMEVAL_ADMIN_PASSWORD=$password"
     "EXAMEVAL_TOKEN_SECRET=$secret"
