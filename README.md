@@ -18,29 +18,39 @@ This repository is separate from Clutch Arena. It does not modify or depend on t
 - Installable offline-capable web app shell; the same-origin local deployment serves both UI and API.
 - Local Docker deployment with persistent data stored in ./data.
 
-## Offline use (recommended for a standalone computer)
+## Offline use on Windows 10/11 and Lubuntu
 
-The easiest offline setup is Docker Compose. You need internet **once** to download/build the application image and its dependencies. After the image is built, the complete local application (web interface, API, OCR engine and PDF renderer) runs on the computer without an internet connection.
+ExamEval uses the same Docker Compose deployment on Windows 10, Windows 11 and Lubuntu. The container includes the web interface, API, Tesseract OCR, PDF renderer and the pre-downloaded semantic model. Runtime evaluation uses the local model and does not call an online AI API.
 
-1. Install Docker Engine and the Docker Compose plugin on the computer.
-2. Clone this repository, then open a terminal in the repository folder.
-3. Create your private local settings file:
+**One-time preparation (internet required):**
 
-   ```bash
-   cp .env.example .env
-   nano .env
-   ```
+1. Install Docker:
+   - **Windows 10/11:** Install Docker Desktop, enable the WSL 2 backend and start Docker Desktop. Hardware virtualization must be enabled. Docker Desktop availability depends on the Windows edition and system requirements; if it is not supported on your PC, use a compatible Linux installation.
+   - **Lubuntu:** Install Docker Engine and the Docker Compose plugin using the official Docker instructions for Ubuntu-compatible distributions, then ensure your user can run Docker.
+2. Clone this repository and open a terminal/PowerShell in the repository folder.
+3. Create a private `.env` file by copying `.env.example`. Set a strong private teacher password and a long random token secret. Never share or commit this file.
+4. Build the image and start ExamEval. This first build downloads the app dependencies and model, so allow time and disk space for it.
 
-   Replace both example values with private, long random strings. Do not share the .env file or upload it to GitHub.
+**Windows 10/11 quick start:**
 
-4. Build the app and start it (first run needs internet):
+Double-click `start_exam_eval.bat` in File Explorer, or run it from PowerShell:
 
-   ```bash
-   docker compose up -d --build
-   ```
+```powershell
+.\start_exam_eval.bat
+```
 
-5. Open **http://localhost:8000** in the browser and sign in with the teacher password from .env.
-6. Once the image is built and the app has started successfully, disconnect the computer from the internet and use **http://localhost:8000** as usual. Keep the computer and browser running locally; the app does not need Railway or Vercel for this mode.
+The helper creates `.env` on first run and asks you to set the teacher password and token secret. It then builds/starts the app and opens **http://localhost:8000**. To stop it, run `stop_exam_eval.bat`.
+
+**Lubuntu quick start:**
+
+```bash
+chmod +x start_exam_eval.sh
+./start_exam_eval.sh
+```
+
+The helper creates `.env` on first run and prompts for the private teacher password and token secret. It then builds/starts the app. Open **http://localhost:8000**. To stop it, run `docker compose stop`.
+
+**After the first successful build:** verify that the app opens and that `/health` reports all checks healthy. Then disconnect from the internet and test sign-in, a sample evaluation, review and history. You can use the app offline as long as the computer remains on and Docker is running. Keep your `data/` folder safe and back it up regularly.
 
 Useful commands:
 
