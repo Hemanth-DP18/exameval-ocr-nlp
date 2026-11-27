@@ -72,6 +72,12 @@ async def read_file(f):
     data=await f.read()
     if not data: raise HTTPException(400,"The uploaded file is empty.")
     if len(data)>MAX_SIZE: raise HTTPException(413,"Each file must be 15 MB or smaller.")
+    if ext==".pdf" and not data.startswith(b"%PDF-"):
+        raise HTTPException(400,"The selected PDF does not have a valid PDF signature.")
+    if ext in {".jpg",".jpeg"} and not data.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(400,"The selected file is not a valid JPEG image.")
+    if ext==".png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(400,"The selected file is not a valid PNG image.")
     return data,ext
 
 def ocr(img):
@@ -104,14 +110,37 @@ def score(a,e):
     return 2*p*r/(p+r) if p+r else 0.0
 
 def rubric(text):
-    out=[]
+    """Read common explicit marking-scheme lines; use a visible placeholder fallback."""
+    patterns=[
+      re.compile(r"\s*(?:q(?:uestion)?\s*)?(\d+)\s*[:.)-]\s*(.*?)\s*\|\s*marks?\s*[:=]\s*(\d+(?:\.\d+)?)\s*$",re.I),
+      re.compile(r"\s*(?:q(?:uestion)?\s*)?(\d+)\s*[:.)-]\s*(.*?)\s*\(\s*(\d+(?:\.\d+)?)\s*marks?\s*\)\s*$",re.I),
+      re.compile(r"\s*(?:q(?:uestion)?\s*)?(\d+)\s*[:.)-]\s*(.*?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*marks?\s*$",re.I)
+    ]
+    out=[]; seen=set()
     for line in text.splitlines():
-        m=re.match(r"\s*(?:q(?:uestion)?\s*)?(\d+)\s*[:.)-]\s*(.*?)\s*\|\s*marks?\s*[:=]\s*(\d+(?:\.\d+)?)\s*$",line,re.I)
-        if m: out.append({"criterion":f"Q{m.group(1)}","expected":m.group(2),"max_marks":float(m.group(3))})
-    if not out:
-        paras=[x.strip() for x in re.split(r"\n\s*\n",text) if x.strip()]
-        out=[{"criterion":f"Criterion {i+1}","expected":p,"max_marks":1.0} for i,p in enumerate(paras)]
-    return out
+        for pattern in patterns:
+            m=pattern.match(line)
+            if m:
+                qno=int(m.group(1)); expected=m.group(2).strip(); marks=float(m.group(3))
+                if expected and marks>0 and qno not in seen:
+                    out.append({"criterion":f"Q{qno}","expected":expected,"max_marks":marks})
+                    seen.add(qno)
+                break
+    if out:return out
+    paras=[x.strip() for x in re.split(r"\n\s*\n",text) if x.strip()]
+    return [{"criterion":f"Criterion {i+1}","expected":p,"max_marks":1.0,"rubric_warning":"Unstructured scheme: 1 mark per text block is only a placeholder. Edit marks before finalizing."} for i,p in enumerate(paras)]
+
+def answer_for_question(answer_text, criterion):
+    match=re.fullmatch(r"Q(\d+)",criterion,re.I)
+    if not match:return answer_text
+    qno=match.group(1)
+    pattern=re.compile(r"(?im)^\s*(?:question\s*)?"+re.escape(qno)+r"\s*[.):/-]\s*")
+    matches=list(pattern.finditer(answer_text))
+    if not matches:return answer_text
+    start=matches[0].end()
+    next_match=re.search(r"(?im)^\s*(?:question\s*)?\d+\s*[.):/-]\s*",answer_text[start:])
+    end=start+next_match.start() if next_match else len(answer_text)
+    return answer_text[start:end].strip() or answer_text
 
 def evaluation_dict(row,include_text=True):
     d=dict(row)
@@ -136,7 +165,7 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
     if not criteria: raise HTTPException(422,"No marking criteria found. Use one line per criterion, e.g. Q1: expected answer | marks: 5")
     rows=[]; total=maximum=0.0
     for c in criteria:
-        sim=score(at,c["expected"]); awarded=round(sim*c["max_marks"],2)
+        candidate=answer_for_question(at,c["criterion"]); sim=score(candidate,c["expected"]); awarded=round(sim*c["max_marks"],2)
         total+=awarded; maximum+=c["max_marks"]
         rows.append({**c,"similarity":round(sim,3),"awarded_marks":awarded,"estimated_marks":awarded,"teacher_marks":None,"review_required":True})
     timestamp=now()
@@ -151,7 +180,10 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
           VALUES(?,?,?,?,?,?,?,?,?,'pending')""",(sid,assessment_title.strip() or "Untitled assessment",timestamp,qt[:50000],st[:50000],at[:50000],json.dumps(rows),round(total,2),round(maximum,2)))
         eid=cur.lastrowid
         row=db.execute("""SELECT e.*,s.name,s.roll_no FROM evaluations e JOIN students s ON s.id=e.student_id WHERE e.id=?""",(eid,)).fetchone()
-    return evaluation_dict(row)
+    report=evaluation_dict(row)
+    report["scoring_method"]="word_overlap_f1_baseline"
+    report["teacher_review_required"]=True
+    return report
 
 @app.get("/api/evaluations")
 def list_evaluations(q:str="",limit:int=50,offset:int=0,_:bool=Depends(require_teacher)):
