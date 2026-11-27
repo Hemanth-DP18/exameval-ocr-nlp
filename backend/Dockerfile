@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr p
 WORKDIR /app
 COPY backend/requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+# Download the model into the image so runtime inference works without internet.
+RUN HF_HOME=/opt/huggingface python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/exameval-model')"
+ENV EXAMEVAL_MODEL_PATH=/opt/exameval-model HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/opt/huggingface
 COPY backend/ .
 COPY --from=frontend-build /web/dist ./static
 ENV PORT=8000
