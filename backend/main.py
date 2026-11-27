@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from pypdf import PdfReader
@@ -62,7 +62,7 @@ def root(): return {"service":"ExamEval API","docs":"/docs"}
 def health(): return {"status":"healthy"}
 
 @app.post("/api/evaluate")
-async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile=File(...),answer_sheet:UploadFile=File(...),student_name:str="Student"):
+async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile=File(...),answer_sheet:UploadFile=File(...),student_name:str=Form("Student"),student_roll_no:str=Form(...)):
     qd,qe=await read_file(question_paper); sd,se=await read_file(marking_scheme); ad,ae=await read_file(answer_sheet)
     qt=extract(qd,qe); st=extract(sd,se); at=extract(ad,ae)
     criteria=rubric(st)
@@ -72,4 +72,4 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
         sim=score(at,c["expected"]); awarded=round(sim*c["max_marks"],2)
         total+=awarded; maximum+=c["max_marks"]
         rows.append({**c,"similarity":round(sim,3),"awarded_marks":awarded,"review_required":True})
-    return {"student_name":student_name.strip() or "Student","total_marks":round(total,2),"maximum_marks":round(maximum,2),"percentage":round(100*total/maximum,2) if maximum else 0,"question_paper_text":qt[:12000],"marking_scheme_text":st[:12000],"answer_text":at[:20000],"results":rows,"notice":"Prototype estimate only. OCR and word-overlap scoring may miss equivalent wording, handwriting, numerical working and diagrams. A teacher must review and confirm every mark."}
+    return {"student_name":student_name.strip() or "Student","student_roll_no":student_roll_no.strip(),"total_marks":round(total,2),"maximum_marks":round(maximum,2),"percentage":round(100*total/maximum,2) if maximum else 0,"question_paper_text":qt[:12000],"marking_scheme_text":st[:12000],"answer_text":at[:20000],"results":rows,"notice":"Prototype estimate only. OCR and word-overlap scoring may miss equivalent wording, handwriting, numerical working and diagrams. A teacher must review and confirm every mark."}
