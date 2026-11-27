@@ -63,7 +63,7 @@ def root():
     return {"service":"ExamEval API","version":app.version,"docs":"/docs","offline_mode":"Use the bundled local web app or run the frontend separately."}
 @app.get("/health")
 def health():
-    checks={"database":False,"ocr":False,"pdf_renderer":False}
+    checks={"database":False,"ocr":False,"pdf_renderer":False,"semantic_model":False}
     try:
         with connect() as db:
             db.execute("SELECT 1").fetchone()
@@ -76,7 +76,8 @@ def health():
     except Exception:
         pass
     checks["pdf_renderer"]=bool(__import__("shutil").which("pdftoppm"))
-    healthy=checks["database"] and checks["ocr"] and checks["pdf_renderer"]
+    checks["semantic_model"]=(Path(os.getenv("EXAMEVAL_MODEL_PATH","/opt/exameval-model")) / "config.json").is_file()
+    healthy=all(checks.values())
     return {"status":"healthy" if healthy else "degraded","checks":checks,"version":app.version}
 @app.post("/api/login")
 def login(payload:dict):
@@ -124,11 +125,28 @@ def extract(data,ext):
     except Exception: raise HTTPException(422,"Image processing failed. Use a clear PNG or JPG image.")
 
 def words(s): return {w for w in re.findall(r"[a-z0-9]+",s.lower()) if len(w)>1}
+
+_SEMANTIC_MODEL=None
 def score(a,e):
+    """Offline hybrid estimate: semantic embeddings plus lexical overlap."""
+    global _SEMANTIC_MODEL
     aa,ee=words(a),words(e)
-    if not aa or not ee:return 0.0
-    p=len(aa&ee)/len(aa); r=len(aa&ee)/len(ee)
-    return 2*p*r/(p+r) if p+r else 0.0
+    if not a.strip() or not e.strip(): return 0.0
+    p=len(aa&ee)/len(aa) if aa else 0.0
+    r=len(aa&ee)/len(ee) if ee else 0.0
+    lexical=(2*p*r/(p+r)) if p+r else 0.0
+    try:
+        if _SEMANTIC_MODEL is None:
+            from sentence_transformers import SentenceTransformer
+            model_path=Path(os.getenv("EXAMEVAL_MODEL_PATH","/opt/exameval-model"))
+            if not model_path.is_dir():
+                raise RuntimeError("Local semantic model directory is missing.")
+            _SEMANTIC_MODEL=SentenceTransformer(str(model_path),device="cpu",local_files_only=True)
+        vectors=_SEMANTIC_MODEL.encode([a[:4000],e[:4000]],convert_to_tensor=True,normalize_embeddings=True)
+        semantic=max(0.0,min(1.0,float((vectors[0]*vectors[1]).sum().item())))
+        return round(max(0.0,min(1.0,0.70*semantic+0.30*lexical)),6)
+    except Exception:
+        raise HTTPException(503,"The offline semantic model could not be loaded. Rebuild the local ExamEval image while connected to the internet, then retry.")
 
 def rubric(text):
     """Read common explicit marking-scheme lines; use a visible placeholder fallback."""
@@ -210,7 +228,8 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
         eid=cur.lastrowid
         row=db.execute("""SELECT e.*,s.name,s.roll_no FROM evaluations e JOIN students s ON s.id=e.student_id WHERE e.id=?""",(eid,)).fetchone()
     report=evaluation_dict(row)
-    report["scoring_method"]="word_overlap_f1_baseline"
+    report["scoring_method"]="offline_semantic_plus_lexical_estimate"
+    report["semantic_model"]="sentence-transformers/all-MiniLM-L6-v2"
     report["teacher_review_required"]=True
     return report
 
