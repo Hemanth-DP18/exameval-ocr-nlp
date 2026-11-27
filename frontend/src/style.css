@@ -59,3 +59,30 @@ footer{letter-spacing:.15px}
 .scores strong.student-id{font-size:clamp(15px,1.7vw,21px);overflow-wrap:anywhere}
 @media(max-width:950px){.scores{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.student-fields{grid-template-columns:1fr;max-width:none;width:100%}.scores{grid-template-columns:1fr 1fr}}
+
+/* Persistent records and protected teacher workspace */
+.login-screen{min-height:100vh;display:grid;place-items:center;padding:22px;background:radial-gradient(ellipse at 85% 10%,#e7ebff,transparent 38%),#f4f6fb}
+.login-card{width:min(420px,100%);padding:34px;background:#fff;border:1px solid #e5eaf3;border-radius:18px;box-shadow:0 22px 65px #1c2b4b18}
+.login-logo{padding:0 0 28px;color:#1d2a44}.login-logo small{color:#8995a8}
+.login-icon{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:#eef0ff;color:#5c6fe4;margin:4px 0 16px}
+.login-card h1{font:800 25px Manrope;margin:0 0 7px;color:#1d2a44}.login-card>p{font-size:12px;color:#8995a8;line-height:1.6;margin:0 0 22px}
+.login-card>label{display:flex;flex-direction:column;gap:8px;font-size:9px;letter-spacing:1px;color:#8290a5;font-weight:700}
+.login-card input{border:1px solid #dfe5ed;border-radius:8px;padding:13px;font:13px 'DM Sans';letter-spacing:0}
+.login-card>.primary{width:100%;margin-top:17px}
+.privacy-note{display:flex;align-items:center;gap:7px;color:#8995a8;font-size:10px;margin-top:20px}.privacy-note svg{width:15px;color:#299684}
+.logout{margin-top:8px;color:#b8c4d9}.logout:hover{color:#fff}
+.student-fields.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;max-width:none;margin-top:22px}
+.student-fields.three label{display:flex;flex-direction:column;gap:7px;font-size:9px;letter-spacing:1px;color:#8290a5;font-weight:700;min-width:0}
+.student-fields.three input{width:100%;min-width:0;border:1px solid #dfe5ed;border-radius:8px;padding:11px;font:12px 'DM Sans';letter-spacing:0;color:#263550;background:#fff}
+.save-note{display:flex;align-items:center;gap:7px;color:#299684;font-size:10px}.save-note svg{width:16px}
+.searchbar{display:flex;align-items:center;gap:10px;border:1px solid #e1e6ef;background:#fafbfe;border-radius:9px;padding:0 12px;margin:4px 0 18px;color:#8995a8}
+.searchbar svg{width:17px;flex-shrink:0}.searchbar input{border:0;outline:0!important;background:transparent;padding:12px 0;width:100%;font:12px 'DM Sans';color:#263550}
+.small-action{border:1px solid #dce2f1;background:#f5f6ff;color:#5365d4;border-radius:7px;padding:6px 10px;font:700 10px 'DM Sans';cursor:pointer}
+.small-action:hover{background:#e9ecff}
+.review.finalized{background:#e8f7f1;color:#21856f}
+.mark-input{width:85px;padding:7px;border:1px solid #dce2ee;border-radius:7px;font:12px 'DM Sans';color:#263550}
+.mark-input:disabled{background:#f5f7fa;color:#7d899d}
+.review-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin:16px 0}
+.review-actions>span{margin-right:auto}
+@media(max-width:950px){.student-fields.three{grid-template-columns:1fr 1fr}}
+@media(max-width:650px){.student-fields.three{grid-template-columns:1fr}.review-actions{align-items:stretch}.review-actions .primary,.review-actions .export{width:auto;flex:1}.review-actions>span{width:100%;margin:0}.login-card{padding:26px 21px}.save-note{line-height:1.5}}
