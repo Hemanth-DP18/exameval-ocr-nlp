@@ -1,102 +1,32 @@
-import React,{useState} from "react";
+import React,{useEffect,useState}from"react";
 import{createRoot}from"react-dom/client";
-import{ScanText,BookOpen,ClipboardCheck,FileText,UploadCloud,ArrowRight,ShieldCheck,BrainCircuit,Download,AlertTriangle}from"lucide-react";
+import{ScanText,BookOpen,ClipboardCheck,FileText,UploadCloud,ArrowRight,ShieldCheck,BrainCircuit,Download,AlertTriangle,History,Users,LogOut,Search,Save,CheckCircle2,LockKeyhole,RefreshCw}from"lucide-react";
 import"./style.css";
-
 const API=import.meta.env.VITE_API_URL||"http://localhost:8000";
-const docs=[
-  ["question_paper","Question paper","Printed paper · PDF, image or TXT"],
-  ["marking_scheme","Marking scheme","Model answers / rubric"],
-  ["answer_sheet","Handwritten answer sheet","Student response · PDF or image"]
-];
-
+const docs=[["question_paper","Question paper","Printed paper · PDF, image or TXT"],["marking_scheme","Marking scheme","Model answers / rubric"],["answer_sheet","Handwritten answer sheet","Student response · PDF or image"]];
 function App(){
-  const[files,setFiles]=useState({});
-  const[student,setStudent]=useState("Student");
-  const[rollNo,setRollNo]=useState("");
-  const[busy,setBusy]=useState(false);
-  const[error,setError]=useState("");
-  const[report,setReport]=useState(null);
-  const[tab,setTab]=useState("new");
-
-  async function run(e){
-    e.preventDefault();
-    setError("");
-    if(docs.some(([k])=>!files[k]))return setError("Upload all three documents to continue.");
-    if(!rollNo.trim())return setError("Enter the student's Roll Number or USN.");
-    setBusy(true);
-    try{
-      const fd=new FormData();
-      docs.forEach(([k])=>fd.append(k,files[k]));
-      fd.append("student_name",student.trim()||"Student");
-      fd.append("student_roll_no",rollNo.trim());
-      const r=await fetch(API+"/api/evaluate",{method:"POST",body:fd});
-      const j=await r.json();
-      if(!r.ok)throw Error(j.detail||"Evaluation failed");
-      setReport(j);
-      setTab("report");
-    }catch(e){setError(e.message+" Check the API URL and backend status.");}
-    finally{setBusy(false);}
-  }
-
-  function csv(){
-    if(!report)return;
-    const rows=[
-      ["Student Name",report.student_name],
-      ["Roll Number / USN",report.student_roll_no||""],
-      [],
-      ["Criterion","Expected","Maximum","Awarded","Similarity"],
-      ...report.results.map(x=>[x.criterion,x.expected,x.max_marks,x.awarded_marks,x.similarity])
-    ];
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(x=>'"'+String(x??"").replaceAll('"','""')+'"').join(",")).join("\n")],{type:"text/csv"}));
-    a.download="exameval-report.csv";
-    a.click();
-  }
-
-  return <div className="layout">
-    <aside>
-      <div className="logo"><span><ScanText/></span><div><b>ExamEval</b><small>ASSESSMENT STUDIO</small></div></div>
-      <label className="muted">WORKSPACE</label>
-      <button className={tab==="new"?"nav active":"nav"} onClick={()=>setTab("new")}><BookOpen/> Evaluation workspace</button>
-      <button className={tab==="report"?"nav active":"nav"} onClick={()=>setTab("report")}><ClipboardCheck/> Evaluation report</button>
-      <div className="asidebottom"><ShieldCheck/><b>Human-reviewed</b><small>AI-assisted · Teacher-led</small></div>
-    </aside>
-    <main>
-      <header><span>Assessment / <b>{tab==="new"?"New evaluation":"Report"}</b></span><span className="ready">● System ready</span></header>
-      {tab==="new"?<>
-        <section className="hero"><div><small>● OCR + NLP WORKFLOW</small><h1>Evaluate with clarity.<br/><i>Review with confidence.</i></h1><p>Bring the question paper, marking scheme and handwritten answers into one guided assessment workspace.</p></div><div className="brain"><BrainCircuit size={55}/></div></section>
-        <div className="steps"><b>01　Upload documents</b><span>────────</span><b>02　Extract & compare</b><span>────────</span><b>03　Review marks</b></div>
-        <form onSubmit={run}>
-          <div className="sectionhead"><div><small>01 — SOURCE MATERIAL</small><h2>Set up your evaluation</h2><p>Upload all three documents for this assessment.</p></div><span className="format">PDF · PNG · JPG · TXT</span></div>
-          <div className="cards">{docs.map(([key,title,desc],i)=><label className={"upload "+(files[key]?"chosen":"")} key={key}><div className="fileicon">{i===0?<BookOpen/>:i===1?<ClipboardCheck/>:<FileText/>}</div><b>{title}</b><small>{desc}</small><div className="drop"><UploadCloud/><strong>{files[key]?.name||"Choose a file"}</strong><small>{files[key]?"Ready to process":"Maximum 15 MB"}</small></div><input type="file" accept=".pdf,.png,.jpg,.jpeg,.txt" onChange={e=>setFiles(v=>({...v,[key]:e.target.files[0]}))}/></label>)}</div>
-          <div className="bottom">
-            <div className="student-fields">
-              <label>STUDENT NAME<input value={student} onChange={e=>setStudent(e.target.value)} placeholder="Enter student name"/></label>
-              <label>ROLL NUMBER / USN <span className="required">*</span><input value={rollNo} onChange={e=>setRollNo(e.target.value)} placeholder="Enter roll number or USN" required autoComplete="off"/></label>
-            </div>
-            <button className="primary" disabled={busy}>{busy?"Processing…":<>Start evaluation <ArrowRight size={17}/></>}</button>
-          </div>
-          {error&&<div className="error"><AlertTriangle/>{error}</div>}
-        </form>
-        <div className="notice"><ShieldCheck/><div><b>Assisted assessment, not automatic final grading</b><p>OCR and text comparison provide a first estimate. Teachers should verify handwriting, equivalent answers, calculations and diagrams before confirming marks.</p></div></div>
-      </>:<section className="report">
-        <div className="sectionhead"><div><small>02 — ASSESSMENT OUTPUT</small><h2>Evaluation report</h2><p>Review every criterion before confirming marks.</p></div><button className="export" onClick={csv} disabled={!report}><Download/> Export CSV</button></div>
-        {!report?<div className="empty"><ClipboardCheck/><h3>No report yet</h3><p>Complete an evaluation to see the report.</p><button className="primary" onClick={()=>setTab("new")}>Go to workspace</button></div>:<>
-          <div className="scores">
-            <div><small>ESTIMATED SCORE</small><strong>{report.total_marks}<i> / {report.maximum_marks}</i></strong><p>{report.percentage}% of total marks</p></div>
-            <div><small>STUDENT</small><strong>{report.student_name}</strong><p>Analysis completed</p></div>
-            <div><small>ROLL NUMBER / USN</small><strong className="student-id">{report.student_roll_no||"—"}</strong><p>Student identifier</p></div>
-            <div><small>CRITERIA</small><strong>{report.results.length}</strong><p>All require review</p></div>
-          </div>
-          <div className="tablebox"><table><thead><tr><th>CRITERION</th><th>MAX</th><th>ESTIMATED</th><th>SIMILARITY</th><th>STATUS</th></tr></thead><tbody>{report.results.map((x,i)=><tr key={i}><td><b>{x.criterion}</b><small>{x.expected}</small></td><td>{x.max_marks}</td><td>{x.awarded_marks}</td><td>{Math.round(x.similarity*100)}%</td><td><span className="review">Review needed</span></td></tr>)}</tbody></table></div>
-          <div className="warning"><AlertTriangle/><div><b>Teacher verification required</b><p>{report.notice}</p></div></div>
-          <details><summary>View extracted answer text</summary><pre>{report.answer_text}</pre></details>
-        </>}
-      </section>}
-      <footer>ExamEval · Research prototype · OCR-assisted answer evaluation</footer>
-    </main>
-  </div>;
+ const[token,setToken]=useState(localStorage.getItem("exameval_token")||"");
+ const[password,setPassword]=useState("");const[loginError,setLoginError]=useState("");const[busy,setBusy]=useState(false);
+ const[files,setFiles]=useState({});const[student,setStudent]=useState("");const[rollNo,setRollNo]=useState("");const[assessment,setAssessment]=useState("");
+ const[error,setError]=useState("");const[report,setReport]=useState(null);const[tab,setTab]=useState("new");
+ const[history,setHistory]=useState([]);const[students,setStudents]=useState([]);const[query,setQuery]=useState("");const[reviewMarks,setReviewMarks]=useState({});const[notice,setNotice]=useState("");
+ async function api(path,opts={}){const headers={...(opts.headers||{}),Authorization:"Bearer "+token};const r=await fetch(API+path,{...opts,headers});const data=await r.json().catch(()=>({detail:"Unexpected server response"}));if(r.status===401){logout();throw Error("Session expired. Please sign in again.");}if(!r.ok)throw Error(data.detail||"Request failed");return data;}
+ function logout(){localStorage.removeItem("exameval_token");setToken("");setReport(null);setHistory([]);setStudents([]);}
+ async function login(e){e.preventDefault();setBusy(true);setLoginError("");try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});const d=await r.json();if(!r.ok)throw Error(d.detail||"Login failed");localStorage.setItem("exameval_token",d.token);setToken(d.token);setPassword("");}catch(e){setLoginError(e.message);}finally{setBusy(false);}}
+ async function loadHistory(){try{const d=await api("/api/evaluations?q="+encodeURIComponent(query));setHistory(d.items);}catch(e){setError(e.message);}}
+ async function loadStudents(){try{const d=await api("/api/students?q="+encodeURIComponent(query));setStudents(d.items);}catch(e){setError(e.message);}}
+ async function openReport(id){try{const d=await api("/api/evaluations/"+id);setReport(d);setReviewMarks(Object.fromEntries(d.results.map(x=>[x.criterion,x.teacher_marks??x.awarded_marks])));setTab("report");setError("");}catch(e){setError(e.message);}}
+ useEffect(()=>{if(token){api("/api/me").catch(()=>logout());}},[token]);
+ useEffect(()=>{if(token&&tab==="history")loadHistory();if(token&&tab==="students")loadStudents();},[token,tab,query]);
+ async function run(e){e.preventDefault();setError("");if(docs.some(([k])=>!files[k]))return setError("Upload all three documents to continue.");if(!rollNo.trim())return setError("Enter the student's Roll Number or USN.");setBusy(true);try{const fd=new FormData();docs.forEach(([k])=>fd.append(k,files[k]));fd.append("student_name",student.trim()||"Student");fd.append("student_roll_no",rollNo.trim());fd.append("assessment_title",assessment.trim()||"Untitled assessment");const d=await api("/api/evaluate",{method:"POST",body:fd});setReport(d);setReviewMarks(Object.fromEntries(d.results.map(x=>[x.criterion,x.awarded_marks])));setTab("report");setNotice("Evaluation saved to your secure history.");setFiles({});}catch(e){setError(e.message+" Check the API URL and backend status.");}finally{setBusy(false);}}
+ async function saveReview(finalized=false){if(!report)return;setBusy(true);setError("");try{const results=report.results.map(x=>({criterion:x.criterion,teacher_marks:Number(reviewMarks[x.criterion])}));const d=await api("/api/evaluations/"+report.id+"/review",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({results,finalized})});setReport(d);setReviewMarks(Object.fromEntries(d.results.map(x=>[x.criterion,x.teacher_marks??x.awarded_marks])));setNotice(finalized?"Teacher review finalized and saved.":"Teacher review saved.");}catch(e){setError(e.message);}finally{setBusy(false);}}
+ function csv(){if(!report)return;const rows=[["Assessment",report.assessment_title],["Student",report.student_name],["Roll Number / USN",report.student_roll_no],["Date",report.created_at],["Review status",report.review_status],["Total",report.total_marks],["Maximum",report.maximum_marks],[],["Criterion","Expected","Maximum","Estimated","Teacher marks"],...report.results.map(x=>[x.criterion,x.expected,x.max_marks,x.estimated_marks??x.awarded_marks,x.teacher_marks??""])];const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(x=>'"'+String(x??"").replaceAll('"','""')+'"').join(",")).join("\n")],{type:"text/csv"}));a.download="exameval-"+report.student_roll_no+".csv";a.click();URL.revokeObjectURL(a.href);}
+ if(!token)return <div className="login-screen"><form className="login-card" onSubmit={login}><div className="logo login-logo"><span><ScanText/></span><div><b>ExamEval</b><small>ASSESSMENT STUDIO</small></div></div><div className="login-icon"><LockKeyhole/></div><h1>Teacher sign in</h1><p>Sign in to access student records and evaluation reports.</p><label>TEACHER PASSWORD<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter teacher password" required autoComplete="current-password"/></label><button className="primary" disabled={busy}>{busy?"Signing in…":<>Sign in <ArrowRight size={17}/></>}</button>{loginError&&<div className="error"><AlertTriangle/>{loginError}</div>}<small className="privacy-note"><ShieldCheck/> Student data is available only after teacher sign-in.</small></form></div>;
+ return <div className="layout"><aside><div className="logo"><span><ScanText/></span><div><b>ExamEval</b><small>ASSESSMENT STUDIO</small></div></div><label className="muted">WORKSPACE</label><button className={tab==="new"?"nav active":"nav"} onClick={()=>{setTab("new");setNotice("");}}><BookOpen/> New evaluation</button><button className={tab==="history"?"nav active":"nav"} onClick={()=>{setTab("history");setQuery("");}}><History/> Evaluation history</button><button className={tab==="students"?"nav active":"nav"} onClick={()=>{setTab("students");setQuery("");}}><Users/> Student records</button><button className={tab==="report"?"nav active":"nav"} onClick={()=>setTab("report")}><ClipboardCheck/> Current report</button><div className="asidebottom"><ShieldCheck/><b>Teacher workspace</b><small>Private · Sign-in protected</small></div><button className="nav logout" onClick={logout}><LogOut/> Sign out</button></aside>
+ <main><header><span>Assessment / <b>{({new:"New evaluation",history:"Evaluation history",students:"Student records",report:"Evaluation report"})[tab]}</b></span><span className="ready">● Secure session</span></header>
+ {tab==="new"?<><section className="hero"><div><small>● OCR + NLP WORKFLOW</small><h1>Evaluate with clarity.<br/><i>Review with confidence.</i></h1><p>Bring the question paper, marking scheme and handwritten answers into one guided assessment workspace.</p></div><div className="brain"><BrainCircuit size={55}/></div></section><div className="steps"><b>01　Upload documents</b><span>────────</span><b>02　Extract & compare</b><span>────────</span><b>03　Review & save</b></div><form onSubmit={run}><div className="sectionhead"><div><small>01 — SOURCE MATERIAL</small><h2>Set up your evaluation</h2><p>Upload all three documents for this assessment.</p></div><span className="format">PDF · PNG · JPG · TXT</span></div><div className="cards">{docs.map(([key,title,desc],i)=><label className={"upload "+(files[key]?"chosen":"")} key={key}><div className="fileicon">{i===0?<BookOpen/>:i===1?<ClipboardCheck/>:<FileText/>}</div><b>{title}</b><small>{desc}</small><div className="drop"><UploadCloud/><strong>{files[key]?.name||"Choose a file"}</strong><small>{files[key]?"Ready to process":"Maximum 15 MB"}</small></div><input type="file" accept=".pdf,.png,.jpg,.jpeg,.txt" onChange={e=>setFiles(v=>({...v,[key]:e.target.files[0]}))}/></label>)}</div><div className="student-fields three"><label>ASSESSMENT / SUBJECT<input value={assessment} onChange={e=>setAssessment(e.target.value)} placeholder="e.g. Mathematics — Unit Test"/></label><label>STUDENT NAME<input value={student} onChange={e=>setStudent(e.target.value)} placeholder="Enter student name"/></label><label>ROLL NUMBER / USN <span className="required">*</span><input value={rollNo} onChange={e=>setRollNo(e.target.value)} placeholder="Enter roll number or USN" required autoComplete="off"/></label></div><div className="bottom"><span className="save-note"><ShieldCheck/> Evaluation will be saved in history.</span><button className="primary" disabled={busy}>{busy?"Processing…":<>Start evaluation <ArrowRight size={17}/></>}</button></div>{error&&<div className="error"><AlertTriangle/>{error}</div>}</form><div className="notice"><ShieldCheck/><div><b>Assisted assessment, not automatic final grading</b><p>Current scoring is a basic word-overlap baseline, not validated semantic NLP. OCR may miss handwriting, equivalent wording, numerical workings and diagrams. A teacher must review every mark.</p></div></div></>
+ :tab==="history"||tab==="students"?<section className="report"><div className="sectionhead"><div><small>RECORDS & ARCHIVE</small><h2>{tab==="history"?"Evaluation history":"Student records"}</h2><p>{tab==="history"?"Previously saved evaluations, searchable by student or assessment.":"Student directory with saved evaluation counts."}</p></div><button className="export" onClick={()=>tab==="history"?loadHistory():loadStudents()}><RefreshCw/> Refresh</button></div><div className="searchbar"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search name, roll number / USN or assessment…"/></div>{tab==="history"?<div className="tablebox"><table><thead><tr><th>STUDENT</th><th>ROLL NO / USN</th><th>ASSESSMENT</th><th>DATE</th><th>MARKS</th><th>STATUS</th><th></th></tr></thead><tbody>{history.map(x=><tr key={x.id}><td><b>{x.name}</b></td><td>{x.roll_no}</td><td>{x.assessment_title}</td><td>{new Date(x.created_at).toLocaleDateString()}</td><td>{x.confirmed_total??x.estimated_total} / {x.maximum_marks}</td><td><span className={x.review_status==="finalized"?"review finalized":"review"}>{x.review_status}</span></td><td><button className="small-action" onClick={()=>openReport(x.id)}>Open</button></td></tr>)}</tbody></table>{!history.length&&<div className="empty"><History/><h3>No saved evaluations</h3><p>Completed evaluations will appear here.</p></div>}</div>:<div className="tablebox"><table><thead><tr><th>STUDENT</th><th>ROLL NO / USN</th><th>EVALUATIONS</th><th>LATEST EVALUATION</th></tr></thead><tbody>{students.map(x=><tr key={x.id}><td><b>{x.name}</b></td><td>{x.roll_no}</td><td>{x.evaluation_count}</td><td>{x.latest_evaluation?new Date(x.latest_evaluation).toLocaleString():"—"}</td></tr>)}</tbody></table>{!students.length&&<div className="empty"><Users/><h3>No student records yet</h3><p>Students are added when their first evaluation is saved.</p></div>}</div>}</section>
+ :<section className="report"><div className="sectionhead"><div><small>ASSESSMENT OUTPUT</small><h2>Evaluation report</h2><p>Review estimated marks and save teacher-confirmed marks.</p></div><button className="export" onClick={csv} disabled={!report}><Download/> Export CSV</button></div>{!report?<div className="empty"><ClipboardCheck/><h3>No report selected</h3><p>Complete an evaluation or open one from history.</p><button className="primary" onClick={()=>setTab("new")}>New evaluation</button></div>:<><div className="scores"><div><small>{report.is_finalized?"TEACHER-CONFIRMED SCORE":"ESTIMATED SCORE"}</small><strong>{report.total_marks}<i> / {report.maximum_marks}</i></strong><p>{report.percentage}% of total marks</p></div><div><small>STUDENT</small><strong>{report.student_name}</strong><p>{report.student_roll_no}</p></div><div><small>ASSESSMENT</small><strong className="student-id">{report.assessment_title}</strong><p>{new Date(report.created_at).toLocaleString()}</p></div><div><small>REVIEW STATUS</small><strong className="student-id">{report.review_status}</strong><p>{report.results.length} criteria</p></div></div><div className="tablebox"><table><thead><tr><th>CRITERION</th><th>MAX</th><th>ESTIMATED</th><th>TEACHER MARKS</th><th>SIMILARITY</th></tr></thead><tbody>{report.results.map((x,i)=><tr key={i}><td><b>{x.criterion}</b><small>{x.expected}</small></td><td>{x.max_marks}</td><td>{x.estimated_marks??x.awarded_marks}</td><td><input className="mark-input" type="number" min="0" max={x.max_marks} step="0.01" value={reviewMarks[x.criterion]??""} disabled={report.is_finalized} onChange={e=>setReviewMarks(v=>({...v,[x.criterion]:e.target.value}))}/></td><td>{Math.round(x.similarity*100)}%</td></tr>)}</tbody></table></div><div className="review-actions"><span className={report.is_finalized?"review finalized":"review"}>{report.is_finalized?"Teacher review finalized":"Teacher review pending"}</span><button className="export" disabled={busy||report.is_finalized} onClick={()=>saveReview(false)}><Save/> Save review</button><button className="primary" disabled={busy||report.is_finalized} onClick={()=>saveReview(true)}><CheckCircle2/> Finalize marks</button></div><div className="warning"><AlertTriangle/><div><b>Teacher verification required</b><p>These are prototype estimates based on word overlap. Check answer meaning, calculations, diagrams and OCR errors before finalizing.</p></div></div><details><summary>View extracted answer text</summary><pre>{report.answer_text}</pre></details></>}</section>}
+ {notice&&<div className="notice"><CheckCircle2/><div>{notice}</div></div>}{error&&<div className="error"><AlertTriangle/>{error}</div>}<footer>ExamEval · Research prototype · Private teacher workspace · OCR-assisted answer evaluation</footer></main></div>;
 }
-
 createRoot(document.getElementById("root")).render(<App/>);
