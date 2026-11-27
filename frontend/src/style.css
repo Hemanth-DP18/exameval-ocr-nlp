@@ -86,3 +86,6 @@ footer{letter-spacing:.15px}
 .review-actions>span{margin-right:auto}
 @media(max-width:950px){.student-fields.three{grid-template-columns:1fr 1fr}}
 @media(max-width:650px){.student-fields.three{grid-template-columns:1fr}.review-actions{align-items:stretch}.review-actions .primary,.review-actions .export{width:auto;flex:1}.review-actions>span{width:100%;margin:0}.login-card{padding:26px 21px}.save-note{line-height:1.5}}
+
+/* Offline-capable interface uses local/system fonts; no runtime font download. */
+.ready{white-space:nowrap}
