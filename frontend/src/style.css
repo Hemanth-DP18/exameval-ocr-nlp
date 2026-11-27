@@ -48,3 +48,14 @@ footer{letter-spacing:.15px}
 @media(max-width:950px){header{margin:0 -22px;padding:0 22px}}
 @media(max-width:650px){header{margin:0 -13px;padding:0 13px}.hero{box-shadow:0 12px 28px #1b2b4c1a}.steps{justify-content:space-between;padding:10px 8px}.steps b{white-space:nowrap}.upload:hover{transform:none}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+
+/* Student identity fields */
+.student-fields{display:grid;grid-template-columns:repeat(2,minmax(190px,1fr));gap:12px;flex:1;max-width:660px}
+.student-fields label{display:flex;flex-direction:column;gap:7px;font-size:9px;letter-spacing:1px;color:#8290a5;font-weight:700;min-width:0}
+.student-fields input{width:100%;min-width:0;border:1px solid #dfe5ed;border-radius:8px;padding:11px;font:12px 'DM Sans';letter-spacing:0;color:#263550;background:#fff}
+.student-fields input::placeholder{color:#a6afbd}
+.student-fields .required{color:#d45d56;display:inline}
+.scores{grid-template-columns:repeat(4,minmax(0,1fr))}
+.scores strong.student-id{font-size:clamp(15px,1.7vw,21px);overflow-wrap:anywhere}
+@media(max-width:950px){.scores{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.student-fields{grid-template-columns:1fr;max-width:none;width:100%}.scores{grid-template-columns:1fr 1fr}}
