@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import io, os, re, json, sqlite3, secrets
 
 app=FastAPI(title="ExamEval API",version="1.0.0")
-origins=[x.strip() for x in os.getenv("CORS_ORIGINS","*").split(",") if x.strip()]
+origins=[x.strip() for x in os.getenv("CORS_ORIGINS","").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","PATCH","OPTIONS"],allow_headers=["Authorization","Content-Type"])
 DB_PATH=os.getenv("DB_PATH","./exameval.db")
 ADMIN_PASSWORD=os.getenv("EXAMEVAL_ADMIN_PASSWORD","")
@@ -56,7 +56,22 @@ def require_teacher(authorization: str=Header(default="")):
 @app.get("/")
 def root(): return {"service":"ExamEval API","version":"1.0.0","docs":"/docs"}
 @app.get("/health")
-def health(): return {"status":"healthy"}
+def health():
+    checks={"database":False,"ocr":False,"pdf_renderer":False}
+    try:
+        with connect() as db:
+            db.execute("SELECT 1").fetchone()
+        checks["database"]=True
+    except Exception:
+        pass
+    try:
+        import pytesseract
+        checks["ocr"]=bool(__import__("shutil").which("tesseract"))
+    except Exception:
+        pass
+    checks["pdf_renderer"]=bool(__import__("shutil").which("pdftoppm"))
+    healthy=checks["database"] and checks["ocr"] and checks["pdf_renderer"]
+    return {"status":"healthy" if healthy else "degraded","checks":checks,"version":app.version}
 @app.post("/api/login")
 def login(payload:dict):
     if not ADMIN_PASSWORD: raise HTTPException(503,"Teacher login is not configured.")
@@ -126,8 +141,11 @@ def rubric(text):
                     out.append({"criterion":f"Q{qno}","expected":expected,"max_marks":marks})
                     seen.add(qno)
                 break
-    if out:return out
+    if out:
+        if len(out)>100: raise HTTPException(422,"The marking scheme contains more than 100 criteria. Please split the assessment.")
+        return out
     paras=[x.strip() for x in re.split(r"\n\s*\n",text) if x.strip()]
+    if len(paras)>100: raise HTTPException(422,"The marking scheme contains more than 100 text blocks. Please split the assessment.")
     return [{"criterion":f"Criterion {i+1}","expected":p,"max_marks":1.0,"rubric_warning":"Unstructured scheme: 1 mark per text block is only a placeholder. Edit marks before finalizing."} for i,p in enumerate(paras)]
 
 def answer_for_question(answer_text, criterion):
@@ -157,8 +175,13 @@ def evaluation_dict(row,include_text=True):
 
 @app.post("/api/evaluate")
 async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile=File(...),answer_sheet:UploadFile=File(...),student_name:str=Form("Student"),student_roll_no:str=Form(...),assessment_title:str=Form("Untitled assessment"),_:bool=Depends(require_teacher)):
-    roll=student_roll_no.strip()
-    if not roll or len(roll)>80: raise HTTPException(422,"Enter a valid student Roll Number or USN (maximum 80 characters).")
+    roll=student_roll_no.strip().upper()
+    if not roll or len(roll)>80 or not re.fullmatch(r"[A-Z0-9][A-Z0-9/_-]{0,79}",roll):
+        raise HTTPException(422,"Enter a valid Roll Number or USN using letters, numbers, /, _ or - (maximum 80 characters).")
+    if len(assessment_title.strip())>160:
+        raise HTTPException(422,"Assessment title must be 160 characters or fewer.")
+    if len(student_name.strip())>120:
+        raise HTTPException(422,"Student name must be 120 characters or fewer.")
     qd,qe=await read_file(question_paper); sd,se=await read_file(marking_scheme); ad,ae=await read_file(answer_sheet)
     qt=extract(qd,qe); st=extract(sd,se); at=extract(ad,ae)
     criteria=rubric(st)
