@@ -1,0 +1,17 @@
+services:
+  exameval:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: exameval-local:latest
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+      DB_PATH: /data/exameval.db
+      EXAMEVAL_ADMIN_PASSWORD: ${EXAMEVAL_ADMIN_PASSWORD:?Set a private teacher password in .env}
+      EXAMEVAL_TOKEN_SECRET: ${EXAMEVAL_TOKEN_SECRET:?Set a long random token secret in .env}
+      CORS_ORIGINS: ""
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
