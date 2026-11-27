@@ -1,6 +1,6 @@
 # ExamEval — OCR-assisted answer evaluation
 
-ExamEval is a teacher-facing research prototype for processing a printed question paper, a marking scheme and a handwritten answer sheet. It extracts text with PDF parsing/OCR, produces an initial word-overlap estimate, and stores a teacher-reviewed report.
+ExamEval is a teacher-facing research prototype for processing a printed question paper, a marking scheme and a handwritten answer sheet. It extracts text with PDF parsing/OCR, produces an initial offline semantic-plus-keyword estimate, and stores a teacher-reviewed report.
 
 This repository is separate from Clutch Arena. It does not modify or depend on the Clutch Arena repository.
 
@@ -8,7 +8,8 @@ This repository is separate from Clutch Arena. It does not modify or depend on t
 
 - Upload question paper, marking scheme and handwritten answer sheet (PDF, PNG, JPG or TXT; 15 MB each).
 - Student name and Roll Number / USN, plus an assessment title.
-- OCR/text extraction and an initial criterion-level estimate.
+- OCR/text extraction and an initial criterion-level estimate using a bundled all-MiniLM-L6-v2 sentence embedding model plus lexical matching.
+- CPU-only semantic inference from a model downloaded into the Docker image at build time; no model download is needed while evaluating offline.
 - Teacher sign-in and protected student/evaluation APIs.
 - Persistent SQLite records for students, assessments, extracted text, estimated marks and teacher-confirmed marks.
 - Searchable evaluation history and student directory.
@@ -83,7 +84,7 @@ Vite proxies API requests to the local backend. Open the development URL shown b
 
 ## Important evaluation limitation
 
-The current scoring method is a simple word-overlap/F1 baseline. It is **not validated semantic NLP** and must not be treated as an automatic grading decision. OCR can misread handwriting. Similarity scoring may fail to recognize equivalent wording, numerical reasoning, units, calculation steps and diagrams. A teacher must inspect the extracted content and confirm each criterion. This prototype has not been validated for high-stakes assessment.
+The current scoring method combines the pre-trained English all-MiniLM-L6-v2 semantic embedding model (70% weight) with lexical F1 overlap (30% weight). The model is bundled into the Docker image during build, then loaded from local disk for CPU inference; evaluation does not call an online AI API. This is a general-purpose English sentence-similarity model, not a model trained specifically for grading. It can still misunderstand subject-specific meaning, negation, numerical reasoning, units, calculations, diagrams and OCR errors. A teacher must inspect extracted text and confirm every criterion. Do not use this prototype for high-stakes autonomous grading. Future fine-tuning should use teacher-verified answer/mark pairs and a separate validation set.
 
 ## Production deployment (optional; requires internet)
 
