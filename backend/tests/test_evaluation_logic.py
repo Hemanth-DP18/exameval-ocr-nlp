@@ -29,12 +29,12 @@ class EvaluationLogicTests(unittest.TestCase):
         self.assertNotIn("respiration", main.answer_for_question(text, "Q1"))
 
     def test_question_answer_segmentation_q_prefix(self):
-        text = "Q1: force equals mass times acceleration\\nQ2: energy is conserved"
+        text = "Q1: force equals mass times acceleration\nQ2: energy is conserved"
         self.assertIn("force equals", main.answer_for_question(text, "Q1"))
         self.assertNotIn("energy is conserved", main.answer_for_question(text, "Q1"))
 
     def test_question_answer_segmentation_question_prefix(self):
-        text = "Question 1: first response\\nQuestion 2: second response"
+        text = "Question 1: first response\nQuestion 2: second response"
         self.assertEqual(main.answer_for_question(text, "Q1"), "first response")
 
     def test_similarity_identical_terms(self):
