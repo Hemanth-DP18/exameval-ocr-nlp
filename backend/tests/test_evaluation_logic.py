@@ -1,6 +1,11 @@
 import os
 import tempfile
 import unittest
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ["DB_PATH"] = os.path.join(tempfile.gettempdir(), "exameval-tests.db")
 os.environ["EXAMEVAL_ADMIN_PASSWORD"] = "test-only-password"
@@ -33,10 +38,20 @@ class EvaluationLogicTests(unittest.TestCase):
         self.assertEqual(main.answer_for_question(text, "Q1"), "first response")
 
     def test_similarity_identical_terms(self):
-        self.assertAlmostEqual(main.score("Cell membrane controls entry", "Cell membrane controls entry"), 1.0)
+        class FakeModel:
+            def encode(self, texts, **kwargs):
+                import numpy as np
+                return np.array([[1.0, 0.0], [1.0, 0.0]])
+        with patch.object(main, "_SEMANTIC_MODEL", FakeModel()):
+            self.assertAlmostEqual(main.score("Cell membrane controls entry", "Cell membrane controls entry"), 1.0)
 
     def test_similarity_no_overlap(self):
-        self.assertEqual(main.score("algebra geometry", "photosynthesis chlorophyll"), 0.0)
+        class FakeModel:
+            def encode(self, texts, **kwargs):
+                import numpy as np
+                return np.array([[1.0, 0.0], [0.0, 1.0]])
+        with patch.object(main, "_SEMANTIC_MODEL", FakeModel()):
+            self.assertEqual(main.score("algebra geometry", "photosynthesis chlorophyll"), 0.0)
 
 if __name__ == "__main__":
     unittest.main()
