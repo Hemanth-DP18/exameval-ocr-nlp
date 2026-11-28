@@ -166,7 +166,7 @@ def handwritten_lines(page):
                 start=y
             last=y
         elif start is not None and y-last>gap:
-            if last-start>=7:
+            if last-start>=3:
                 bands.append((start,last+1))
             start=None
     if start is not None and last-start>=7:
