@@ -129,43 +129,91 @@ def load_htr():
     return _HTR_PROCESSOR,_HTR_MODEL
 
 def handwritten_lines(page):
-    """Split a page into horizontal text-line crops using ink projections."""
+    """Detect handwriting lines while suppressing photographed-page shadows and borders."""
     import numpy as np
-    from PIL import ImageOps, ImageEnhance
+    from PIL import ImageOps, ImageFilter
+
     image=ImageOps.exif_transpose(page).convert("L")
     image.thumbnail((1800,2400))
-    image=ImageOps.autocontrast(image)
-    image=ImageEnhance.Contrast(image).enhance(1.35)
-    arr=np.asarray(image)
-    threshold=min(210,max(145,int(np.percentile(arr,35)+28)))
-    active=(arr<threshold).sum(axis=1)>=max(3,int(image.width*0.002))
+    width,height=image.size
+
+    # Remove the photographed desk/page border. These margins contain shadows
+    # and page edges that previously made every row look like handwriting.
+    image=image.crop((int(width*.04),int(height*.025),int(width*.96),int(height*.98)))
+    width,height=image.size
+
+    # Local background subtraction handles uneven lighting better than one
+    # global gray threshold on a photographed sheet.
+    radius=max(12,int(min(width,height)*.035))
+    background=image.filter(ImageFilter.GaussianBlur(radius=radius))
+    pixels=np.asarray(image,dtype=np.int16)
+    local_bg=np.asarray(background,dtype=np.int16)
+    ink=(local_bg-pixels)>24
+
+    # Require a substantial amount of ink across a row. A few dark camera
+    # noise pixels must not turn an entire page into one giant "text line".
+    row_ink=ink.sum(axis=1)
+    row_threshold=max(8,int(width*.08))
+    active=row_ink>=row_threshold
+
     bands=[]
     start=None
     last=None
+    gap=max(8,int(height*.006))
     for y,on in enumerate(active):
         if on:
-            if start is None: start=y
+            if start is None:
+                start=y
             last=y
-        elif start is not None and y-last>max(10,int(image.height*0.006)):
-            if last-start>=5: bands.append((start,last+1))
+        elif start is not None and y-last>gap:
+            if last-start>=7:
+                bands.append((start,last+1))
             start=None
-    if start is not None and last-start>=5: bands.append((start,last+1))
+    if start is not None and last-start>=7:
+        bands.append((start,last+1))
+
+    # Join short fragments from the same slanted/cursive writing line.
     merged=[]
-    gap=max(8,int(image.height*0.008))
+    join_gap=max(8,int(height*.008))
     for top,bottom in bands:
-        if merged and top-merged[-1][1]<=gap:
+        if merged and top-merged[-1][1]<=join_gap:
             merged[-1]=(merged[-1][0],bottom)
         else:
             merged.append((top,bottom))
+
     lines=[]
-    pad=max(5,int(image.height*0.004))
+    pad=max(8,int(height*.006))
     for top,bottom in merged:
-        crop=image.crop((0,max(0,top-pad),image.width,min(image.height,bottom+pad)))
-        bbox=ImageOps.invert(crop).getbbox()
-        if bbox:
-            crop=crop.crop((max(0,bbox[0]-12),0,min(crop.width,bbox[2]+12),crop.height))
-        if crop.width>=24 and crop.height>=8:
-            lines.append(crop.convert("RGB"))
+        # Split unusually tall regions into overlapping strips instead of
+        # sending a whole photographed page to a line-level TrOCR model.
+        max_line_height=max(70,int(height*.065))
+        if bottom-top>max_line_height*1.6:
+            step=max(45,int(max_line_height*.78))
+            chunks=[]
+            y=top
+            while y<bottom:
+                chunks.append((y,min(bottom,y+max_line_height)))
+                if y+max_line_height>=bottom:
+                    break
+                y+=step
+        else:
+            chunks=[(top,bottom)]
+
+        for line_top,line_bottom in chunks:
+            y0=max(0,line_top-pad)
+            y1=min(height,line_bottom+pad)
+            row_mask=ink[y0:y1]
+            if row_mask.size==0 or int(row_mask.sum())<max(30,int(width*.025)):
+                continue
+            xs=np.where(row_mask.any(axis=0))[0]
+            if not len(xs):
+                continue
+            x0=max(0,int(xs[0])-12)
+            x1=min(width,int(xs[-1])+13)
+            crop=image.crop((x0,y0,x1,y1))
+            if crop.width>=40 and crop.height>=10:
+                lines.append(crop.convert("RGB"))
+
     return lines[:220]
 
 def recognize_handwriting(page):
