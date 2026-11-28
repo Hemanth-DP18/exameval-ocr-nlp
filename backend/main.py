@@ -51,13 +51,16 @@ def init_db():
           locked INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
         );
         """)
+        migrated_lock_column=False
         try:
             db.execute("ALTER TABLE assessment_template ADD COLUMN locked INTEGER NOT NULL DEFAULT 0")
+            migrated_lock_column=True
         except sqlite3.OperationalError:
             pass
-        db.execute("""UPDATE assessment_template SET locked=1
-          WHERE question_paper_data IS NOT NULL AND marking_scheme_data IS NOT NULL
-          AND TRIM(assessment_title)<>''""")
+        if migrated_lock_column:
+            db.execute("""UPDATE assessment_template SET locked=1
+              WHERE question_paper_data IS NOT NULL AND marking_scheme_data IS NOT NULL
+              AND TRIM(assessment_title)<>''""")
 init_db()
 
 def now(): return datetime.now(timezone.utc).isoformat()
