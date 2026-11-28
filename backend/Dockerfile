@@ -10,6 +10,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr poppler-utils && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY backend/requirements.txt requirements.txt
+RUN pip install --no-cache-dir torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 # Download semantic and handwriting models at build time for offline CPU inference.
 RUN HF_HOME=/opt/huggingface python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/exameval-model')"
