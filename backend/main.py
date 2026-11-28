@@ -44,6 +44,12 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_evaluations_created ON evaluations(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_students_roll ON students(roll_no);
+        CREATE TABLE IF NOT EXISTS assessment_template(
+          id INTEGER PRIMARY KEY CHECK(id=1), assessment_title TEXT NOT NULL DEFAULT '',
+          question_paper_name TEXT, question_paper_data BLOB, question_paper_ext TEXT,
+          marking_scheme_name TEXT, marking_scheme_data BLOB, marking_scheme_ext TEXT,
+          updated_at TEXT NOT NULL
+        );
         """)
 init_db()
 
@@ -332,8 +338,50 @@ def evaluation_dict(row,include_text=True):
         d.pop("question_paper_text",None);d.pop("marking_scheme_text",None);d.pop("answer_text",None)
     return d
 
+@app.get("/api/template")
+def get_template(_:bool=Depends(require_teacher)):
+    with connect() as db:
+        row=db.execute("SELECT * FROM assessment_template WHERE id=1").fetchone()
+    if not row:
+        return {"assessment_title":"","question_paper":None,"marking_scheme":None,"ready":False}
+    q=bool(row["question_paper_data"]); s=bool(row["marking_scheme_data"])
+    return {"assessment_title":row["assessment_title"],
+            "question_paper":{"name":row["question_paper_name"]} if q else None,
+            "marking_scheme":{"name":row["marking_scheme_name"]} if s else None,
+            "ready":q and s,"updated_at":row["updated_at"]}
+
+@app.put("/api/template/subject")
+def save_template_subject(assessment_title:str=Form(...),_:bool=Depends(require_teacher)):
+    title=assessment_title.strip()
+    if not title or len(title)>160:
+        raise HTTPException(422,"Enter a subject or assessment name (maximum 160 characters).")
+    with connect() as db:
+        db.execute("""INSERT INTO assessment_template(id,assessment_title,updated_at) VALUES(1,?,?)
+          ON CONFLICT(id) DO UPDATE SET assessment_title=excluded.assessment_title,updated_at=excluded.updated_at""",(title,now()))
+    return get_template(True)
+
+@app.put("/api/template/{kind}")
+async def save_template_file(kind:str,file:UploadFile=File(...),_:bool=Depends(require_teacher)):
+    if kind not in {"question_paper","marking_scheme"}:
+        raise HTTPException(404,"Unknown template document.")
+    data,ext=await read_file(file)
+    name=Path(file.filename or f"{kind}{ext}").name
+    with connect() as db:
+        db.execute("INSERT OR IGNORE INTO assessment_template(id,assessment_title,updated_at) VALUES(1,'',?)",(now(),))
+        db.execute(f"UPDATE assessment_template SET {kind}_name=?,{kind}_data=?,{kind}_ext=?,updated_at=? WHERE id=1",
+                   (name,sqlite3.Binary(data),ext,now()))
+    return get_template(True)
+
+@app.delete("/api/template/{kind}")
+def clear_template_file(kind:str,_:bool=Depends(require_teacher)):
+    if kind not in {"question_paper","marking_scheme"}:
+        raise HTTPException(404,"Unknown template document.")
+    with connect() as db:
+        db.execute(f"UPDATE assessment_template SET {kind}_name=NULL,{kind}_data=NULL,{kind}_ext=NULL,updated_at=? WHERE id=1",(now(),))
+    return get_template(True)
+
 @app.post("/api/evaluate")
-async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile=File(...),answer_sheet:UploadFile=File(...),student_name:str=Form("Student"),student_roll_no:str=Form(...),assessment_title:str=Form("Untitled assessment"),_:bool=Depends(require_teacher)):
+async def evaluate(answer_sheet:UploadFile=File(...),question_paper:UploadFile|None=File(None),marking_scheme:UploadFile|None=File(None),student_name:str=Form("Student"),student_roll_no:str=Form(...),assessment_title:str=Form(""),_:bool=Depends(require_teacher)):
     roll=student_roll_no.strip().upper()
     if not roll or len(roll)>80 or not re.fullmatch(r"[A-Z0-9][A-Z0-9/_-]{0,79}",roll):
         raise HTTPException(422,"Enter a valid Roll Number or USN using letters, numbers, /, _ or - (maximum 80 characters).")
@@ -341,7 +389,19 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
         raise HTTPException(422,"Assessment title must be 160 characters or fewer.")
     if len(student_name.strip())>120:
         raise HTTPException(422,"Student name must be 120 characters or fewer.")
-    qd,qe=await read_file(question_paper); sd,se=await read_file(marking_scheme); ad,ae=await read_file(answer_sheet)
+    ad,ae=await read_file(answer_sheet)
+    if question_paper is not None and marking_scheme is not None:
+        qd,qe=await read_file(question_paper); sd,se=await read_file(marking_scheme)
+    else:
+        with connect() as db:
+            template=db.execute("SELECT * FROM assessment_template WHERE id=1").fetchone()
+        if not template or not template["question_paper_data"] or not template["marking_scheme_data"]:
+            raise HTTPException(422,"Lock a question paper and marking scheme before evaluating student answers.")
+        qd,qe=bytes(template["question_paper_data"]),template["question_paper_ext"]
+        sd,se=bytes(template["marking_scheme_data"]),template["marking_scheme_ext"]
+        if not assessment_title.strip():
+            assessment_title=template["assessment_title"]
+    if not assessment_title.strip(): assessment_title="Untitled assessment"
     qt=extract(qd,qe); st=extract(sd,se); at=extract(ad,ae,handwriting=True)
     criteria=rubric(st)
     if not criteria: raise HTTPException(422,"No marking criteria found. Use one line per criterion, e.g. Q1: expected answer | marks: 5")
