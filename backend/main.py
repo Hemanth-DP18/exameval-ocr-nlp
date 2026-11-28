@@ -11,7 +11,7 @@ import io, os, re, json, sqlite3, secrets
 
 app=FastAPI(title="ExamEval API",version="1.0.0")
 origins=[x.strip() for x in os.getenv("CORS_ORIGINS","").split(",") if x.strip()]
-app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","PATCH","OPTIONS"],allow_headers=["Authorization","Content-Type"])
+app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Authorization","Content-Type"])
 DB_PATH=os.getenv("DB_PATH","./exameval.db")
 STATIC_DIR=Path(__file__).parent / "static"
 ADMIN_PASSWORD=os.getenv("EXAMEVAL_ADMIN_PASSWORD","")
