@@ -37,6 +37,15 @@ class EvaluationLogicTests(unittest.TestCase):
         text = "Question 1: first response\nQuestion 2: second response"
         self.assertEqual(main.answer_for_question(text, "Q1"), "first response")
 
+    def test_handwritten_line_segmentation_returns_line_crops(self):
+        from PIL import Image, ImageDraw
+        page=Image.new("RGB",(700,240),"white")
+        draw=ImageDraw.Draw(page)
+        draw.line((40,55,640,55),fill="black",width=4)
+        draw.line((40,135,620,135),fill="black",width=4)
+        lines=main.handwritten_lines(page)
+        self.assertGreaterEqual(len(lines),2)
+
     def test_similarity_identical_terms(self):
         class FakeModel:
             def encode(self, texts, **kwargs):
