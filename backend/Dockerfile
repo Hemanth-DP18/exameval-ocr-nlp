@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr p
 WORKDIR /app
 COPY backend/requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-# Download the model into the image so runtime inference works without internet.
+# Download semantic and handwriting models at build time for offline CPU inference.
 RUN HF_HOME=/opt/huggingface python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/exameval-model')"
-ENV EXAMEVAL_MODEL_PATH=/opt/exameval-model HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/opt/huggingface
+RUN HF_HOME=/opt/huggingface python -c "from transformers import TrOCRProcessor, VisionEncoderDecoderModel; p=TrOCRProcessor.from_pretrained('microsoft/trocr-small-handwritten'); m=VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-small-handwritten'); p.save_pretrained('/opt/exameval-htr'); m.save_pretrained('/opt/exameval-htr', safe_serialization=True)"
+ENV EXAMEVAL_MODEL_PATH=/opt/exameval-model EXAMEVAL_HTR_MODEL_PATH=/opt/exameval-htr HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/opt/huggingface EXAMEVAL_TORCH_THREADS=2
 COPY backend/ .
 COPY --from=frontend-build /web/dist ./static
 ENV PORT=8000
