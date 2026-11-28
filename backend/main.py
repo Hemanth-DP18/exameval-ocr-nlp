@@ -48,9 +48,16 @@ def init_db():
           id INTEGER PRIMARY KEY CHECK(id=1), assessment_title TEXT NOT NULL DEFAULT '',
           question_paper_name TEXT, question_paper_data BLOB, question_paper_ext TEXT,
           marking_scheme_name TEXT, marking_scheme_data BLOB, marking_scheme_ext TEXT,
-          updated_at TEXT NOT NULL
+          locked INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
         );
         """)
+        try:
+            db.execute("ALTER TABLE assessment_template ADD COLUMN locked INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        db.execute("""UPDATE assessment_template SET locked=1
+          WHERE question_paper_data IS NOT NULL AND marking_scheme_data IS NOT NULL
+          AND TRIM(assessment_title)<>''""")
 init_db()
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -343,16 +350,20 @@ def get_template(_:bool=Depends(require_teacher)):
     with connect() as db:
         row=db.execute("SELECT * FROM assessment_template WHERE id=1").fetchone()
     if not row:
-        return {"assessment_title":"","question_paper":None,"marking_scheme":None,"ready":False}
+        return {"assessment_title":"","question_paper":None,"marking_scheme":None,"ready":False,"locked":False}
     q=bool(row["question_paper_data"]); s=bool(row["marking_scheme_data"])
     return {"assessment_title":row["assessment_title"],
             "question_paper":{"name":row["question_paper_name"]} if q else None,
             "marking_scheme":{"name":row["marking_scheme_name"]} if s else None,
-            "ready":q and s,"updated_at":row["updated_at"]}
+            "ready":q and s,"locked":bool(row["locked"]),"updated_at":row["updated_at"]}
 
 @app.put("/api/template/subject")
 def save_template_subject(assessment_title:str=Form(...),_:bool=Depends(require_teacher)):
     title=assessment_title.strip()
+    with connect() as db:
+        existing=db.execute("SELECT locked FROM assessment_template WHERE id=1").fetchone()
+        if existing and existing["locked"]:
+            raise HTTPException(423,"Assessment setup is locked. Unlock it before making changes.")
     if not title or len(title)>160:
         raise HTTPException(422,"Enter a subject or assessment name (maximum 160 characters).")
     with connect() as db:
@@ -364,6 +375,10 @@ def save_template_subject(assessment_title:str=Form(...),_:bool=Depends(require_
 async def save_template_file(kind:str,file:UploadFile=File(...),_:bool=Depends(require_teacher)):
     if kind not in {"question_paper","marking_scheme"}:
         raise HTTPException(404,"Unknown template document.")
+    with connect() as db:
+        existing=db.execute("SELECT locked FROM assessment_template WHERE id=1").fetchone()
+        if existing and existing["locked"]:
+            raise HTTPException(423,"Assessment setup is locked. Unlock it before replacing documents.")
     data,ext=await read_file(file)
     name=Path(file.filename or f"{kind}{ext}").name
     with connect() as db:
@@ -372,16 +387,36 @@ async def save_template_file(kind:str,file:UploadFile=File(...),_:bool=Depends(r
                    (name,sqlite3.Binary(data),ext,now()))
     return get_template(True)
 
+@app.post("/api/template/lock")
+def lock_template(_:bool=Depends(require_teacher)):
+    with connect() as db:
+        row=db.execute("SELECT assessment_title,question_paper_data,marking_scheme_data FROM assessment_template WHERE id=1").fetchone()
+        if not row or not row["assessment_title"].strip() or not row["question_paper_data"] or not row["marking_scheme_data"]:
+            raise HTTPException(422,"Add the subject, question paper and marking scheme before locking.")
+        db.execute("UPDATE assessment_template SET locked=1,updated_at=? WHERE id=1",(now(),))
+    return get_template(True)
+
+@app.post("/api/template/unlock")
+def unlock_template(_:bool=Depends(require_teacher)):
+    with connect() as db:
+        row=db.execute("SELECT id FROM assessment_template WHERE id=1").fetchone()
+        if not row: raise HTTPException(404,"No assessment setup exists.")
+        db.execute("UPDATE assessment_template SET locked=0,updated_at=? WHERE id=1",(now(),))
+    return get_template(True)
+
 @app.delete("/api/template/{kind}")
 def clear_template_file(kind:str,_:bool=Depends(require_teacher)):
     if kind not in {"question_paper","marking_scheme"}:
         raise HTTPException(404,"Unknown template document.")
     with connect() as db:
+        existing=db.execute("SELECT locked FROM assessment_template WHERE id=1").fetchone()
+        if existing and existing["locked"]:
+            raise HTTPException(423,"Assessment setup is locked. Unlock it before removing documents.")
         db.execute(f"UPDATE assessment_template SET {kind}_name=NULL,{kind}_data=NULL,{kind}_ext=NULL,updated_at=? WHERE id=1",(now(),))
     return get_template(True)
 
 @app.post("/api/evaluate")
-async def evaluate(answer_sheet:UploadFile=File(...),question_paper:UploadFile|None=File(None),marking_scheme:UploadFile|None=File(None),student_name:str=Form("Student"),student_roll_no:str=Form(...),assessment_title:str=Form(""),_:bool=Depends(require_teacher)):
+async def evaluate(answer_sheet:UploadFile=File(...),student_name:str=Form("Student"),student_roll_no:str=Form(...),assessment_title:str=Form(""),_:bool=Depends(require_teacher)):
     roll=student_roll_no.strip().upper()
     if not roll or len(roll)>80 or not re.fullmatch(r"[A-Z0-9][A-Z0-9/_-]{0,79}",roll):
         raise HTTPException(422,"Enter a valid Roll Number or USN using letters, numbers, /, _ or - (maximum 80 characters).")
@@ -390,17 +425,14 @@ async def evaluate(answer_sheet:UploadFile=File(...),question_paper:UploadFile|N
     if len(student_name.strip())>120:
         raise HTTPException(422,"Student name must be 120 characters or fewer.")
     ad,ae=await read_file(answer_sheet)
-    if question_paper is not None and marking_scheme is not None:
-        qd,qe=await read_file(question_paper); sd,se=await read_file(marking_scheme)
-    else:
-        with connect() as db:
-            template=db.execute("SELECT * FROM assessment_template WHERE id=1").fetchone()
-        if not template or not template["question_paper_data"] or not template["marking_scheme_data"]:
-            raise HTTPException(422,"Lock a question paper and marking scheme before evaluating student answers.")
-        qd,qe=bytes(template["question_paper_data"]),template["question_paper_ext"]
-        sd,se=bytes(template["marking_scheme_data"]),template["marking_scheme_ext"]
-        if not assessment_title.strip():
-            assessment_title=template["assessment_title"]
+    with connect() as db:
+        template=db.execute("SELECT * FROM assessment_template WHERE id=1").fetchone()
+    if not template or not template["locked"] or not template["question_paper_data"] or not template["marking_scheme_data"]:
+        raise HTTPException(422,"Lock the subject, question paper and marking scheme before evaluating student answers.")
+    qd,qe=bytes(template["question_paper_data"]),template["question_paper_ext"]
+    sd,se=bytes(template["marking_scheme_data"]),template["marking_scheme_ext"]
+    if not assessment_title.strip():
+        assessment_title=template["assessment_title"]
     if not assessment_title.strip(): assessment_title="Untitled assessment"
     qt=extract(qd,qe); st=extract(sd,se); at=extract(ad,ae,handwriting=True)
     criteria=rubric(st)
