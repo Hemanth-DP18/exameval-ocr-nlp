@@ -176,11 +176,12 @@ def answer_for_question(answer_text, criterion):
     match=re.fullmatch(r"Q(\d+)",criterion,re.I)
     if not match:return answer_text
     qno=match.group(1)
-    pattern=re.compile(r"(?im)^\s*(?:question\s*)?"+re.escape(qno)+r"\s*[.):/-]\s*")
+    # Accept common handwritten/OCR headings: "1.", "Question 1:", and "Q1:".
+    pattern=re.compile(r"(?im)^\s*(?:(?:question|q)\s*)?"+re.escape(qno)+r"\s*[.):/-]\s*")
     matches=list(pattern.finditer(answer_text))
     if not matches:return answer_text
     start=matches[0].end()
-    next_match=re.search(r"(?im)^\s*(?:question\s*)?\d+\s*[.):/-]\s*",answer_text[start:])
+    next_match=re.search(r"(?im)^\s*(?:(?:question|q)\s*)?\d+\s*[.):/-]\s*",answer_text[start:])
     end=start+next_match.start() if next_match else len(answer_text)
     return answer_text[start:end].strip() or answer_text
 
@@ -212,9 +213,18 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
     if not criteria: raise HTTPException(422,"No marking criteria found. Use one line per criterion, e.g. Q1: expected answer | marks: 5")
     rows=[]; total=maximum=0.0
     for c in criteria:
-        candidate=answer_for_question(at,c["criterion"]); sim=score(candidate,c["expected"]); awarded=round(sim*c["max_marks"],2)
+        candidate=answer_for_question(at,c["criterion"])
+        sim=score(candidate,c["expected"])
+        awarded=round(sim*c["max_marks"],2)
         total+=awarded; maximum+=c["max_marks"]
-        rows.append({**c,"similarity":round(sim,3),"awarded_marks":awarded,"estimated_marks":awarded,"teacher_marks":None,"review_required":True})
+        # Numeric flags are advisory only; they never change the estimated score.
+        expected_numbers=re.findall(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?",c["expected"])
+        answer_numbers=re.findall(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?",candidate)
+        numeric_check=("not_applicable" if not expected_numbers else
+                       ("exact_tokens" if sorted(expected_numbers)==sorted(answer_numbers) else "teacher_check"))
+        rows.append({**c,"student_answer":candidate[:4000],"numeric_check":numeric_check,
+                     "similarity":round(sim,3),"awarded_marks":awarded,"estimated_marks":awarded,
+                     "teacher_marks":None,"review_required":True})
     timestamp=now()
     with connect() as db:
         student=db.execute("SELECT id FROM students WHERE roll_no=?",(roll,)).fetchone()
