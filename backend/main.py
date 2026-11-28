@@ -63,7 +63,7 @@ def root():
     return {"service":"ExamEval API","version":app.version,"docs":"/docs","offline_mode":"Use the bundled local web app or run the frontend separately."}
 @app.get("/health")
 def health():
-    checks={"database":False,"ocr":False,"pdf_renderer":False,"semantic_model":False}
+    checks={"database":False,"ocr":False,"pdf_renderer":False,"semantic_model":False,"handwriting_model":False}
     try:
         with connect() as db:
             db.execute("SELECT 1").fetchone()
@@ -77,6 +77,7 @@ def health():
         pass
     checks["pdf_renderer"]=bool(__import__("shutil").which("pdftoppm"))
     checks["semantic_model"]=(Path(os.getenv("EXAMEVAL_MODEL_PATH","/opt/exameval-model")) / "config.json").is_file()
+    checks["handwriting_model"]=(Path(os.getenv("EXAMEVAL_HTR_MODEL_PATH","/opt/exameval-htr")) / "config.json").is_file()
     healthy=all(checks.values())
     return {"status":"healthy" if healthy else "degraded","checks":checks,"version":app.version}
 @app.post("/api/login")
@@ -106,23 +107,108 @@ def ocr(img):
     try:
         import pytesseract
         return pytesseract.image_to_string(img)
-    except Exception: raise HTTPException(503,"OCR service is unavailable. Check the backend OCR installation.")
+    except Exception:
+        raise HTTPException(503,"Printed-text OCR is unavailable. Check the Tesseract installation.")
 
-def extract(data,ext):
+_HTR_PROCESSOR=None
+_HTR_MODEL=None
+def load_htr():
+    """Load the small local TrOCR model once per worker."""
+    global _HTR_PROCESSOR,_HTR_MODEL
+    if _HTR_MODEL is not None and _HTR_PROCESSOR is not None:
+        return _HTR_PROCESSOR,_HTR_MODEL
+    model_path=os.getenv("EXAMEVAL_HTR_MODEL_PATH","/opt/exameval-htr")
+    if not Path(model_path).is_dir():
+        raise RuntimeError("Local handwriting model is missing.")
+    import torch
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+    torch.set_num_threads(max(1,int(os.getenv("EXAMEVAL_TORCH_THREADS","2"))))
+    _HTR_PROCESSOR=TrOCRProcessor.from_pretrained(model_path,local_files_only=True)
+    _HTR_MODEL=VisionEncoderDecoderModel.from_pretrained(model_path,local_files_only=True)
+    _HTR_MODEL.to("cpu").eval()
+    return _HTR_PROCESSOR,_HTR_MODEL
+
+def handwritten_lines(page):
+    """Split a page into horizontal text-line crops using ink projections."""
+    import numpy as np
+    from PIL import ImageOps, ImageEnhance
+    image=ImageOps.exif_transpose(page).convert("L")
+    image.thumbnail((1800,2400))
+    image=ImageOps.autocontrast(image)
+    image=ImageEnhance.Contrast(image).enhance(1.35)
+    arr=np.asarray(image)
+    threshold=min(210,max(145,int(np.percentile(arr,35)+28)))
+    active=(arr<threshold).sum(axis=1)>=max(3,int(image.width*0.002))
+    bands=[]
+    start=None
+    last=None
+    for y,on in enumerate(active):
+        if on:
+            if start is None: start=y
+            last=y
+        elif start is not None and y-last>max(10,int(image.height*0.006)):
+            if last-start>=5: bands.append((start,last+1))
+            start=None
+    if start is not None and last-start>=5: bands.append((start,last+1))
+    merged=[]
+    gap=max(8,int(image.height*0.008))
+    for top,bottom in bands:
+        if merged and top-merged[-1][1]<=gap:
+            merged[-1]=(merged[-1][0],bottom)
+        else:
+            merged.append((top,bottom))
+    lines=[]
+    pad=max(5,int(image.height*0.004))
+    for top,bottom in merged:
+        crop=image.crop((0,max(0,top-pad),image.width,min(image.height,bottom+pad)))
+        bbox=ImageOps.invert(crop).getbbox()
+        if bbox:
+            crop=crop.crop((max(0,bbox[0]-12),0,min(crop.width,bbox[2]+12),crop.height))
+        if crop.width>=24 and crop.height>=8:
+            lines.append(crop.convert("RGB"))
+    return lines[:220]
+
+def recognize_handwriting(page):
+    """Run TrOCR over line crops; the model is trained for line-level images."""
+    try:
+        processor,model=load_htr()
+        import torch
+        lines=handwritten_lines(page)
+        if not lines: return ""
+        output=[]
+        for offset in range(0,len(lines),2):
+            batch=lines[offset:offset+2]
+            pixels=processor(images=batch,return_tensors="pt").pixel_values
+            with torch.inference_mode():
+                ids=model.generate(pixels,num_beams=1,max_new_tokens=128)
+            output.extend(x.strip() for x in processor.batch_decode(ids,skip_special_tokens=True) if x.strip())
+        return "\n".join(output)
+    except Exception as exc:
+        raise HTTPException(503,"Handwriting recognition could not load or process this page. Check the local TrOCR installation. "+str(exc)[:200])
+
+def extract(data,ext,handwriting=False):
     if ext==".txt": return data.decode("utf-8",errors="replace")[:50000]
     if ext==".pdf":
         try:
             reader=PdfReader(io.BytesIO(data))
             pages=reader.pages[:12]
-            text="\n".join(p.extract_text() or "" for p in pages)
-            if text.strip(): return text[:50000]
+            embedded="\n".join(p.extract_text() or "" for p in pages)
+            if embedded.strip() and not handwriting: return embedded[:50000]
             from pdf2image import convert_from_bytes
-            return "\n".join(ocr(im) for im in convert_from_bytes(data,first_page=1,last_page=12))[:50000]
+            images=convert_from_bytes(data,first_page=1,last_page=min(12,len(reader.pages)),dpi=160)
+            if handwriting:
+                return "\n\n".join(recognize_handwriting(im) for im in images)[:50000]
+            if embedded.strip(): return embedded[:50000]
+            return "\n".join(ocr(im) for im in images)[:50000]
         except HTTPException: raise
-        except Exception: raise HTTPException(422,"PDF extraction failed. Check that the PDF is readable.")
-    try: return ocr(Image.open(io.BytesIO(data)))[:50000]
+        except Exception as exc:
+            raise HTTPException(422,"PDF extraction failed. Check that the PDF is readable. "+str(exc)[:160])
+    try:
+        image=Image.open(io.BytesIO(data))
+        return (recognize_handwriting(image) if handwriting else ocr(image))[:50000]
     except HTTPException: raise
-    except Exception: raise HTTPException(422,"Image processing failed. Use a clear PNG or JPG image.")
+    except Exception as exc:
+        raise HTTPException(422,"Image processing failed. Use a clear PNG or JPG image. "+str(exc)[:160])
 
 def words(s): return {w for w in re.findall(r"[a-z0-9]+",s.lower()) if len(w)>1}
 
@@ -208,7 +294,7 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
     if len(student_name.strip())>120:
         raise HTTPException(422,"Student name must be 120 characters or fewer.")
     qd,qe=await read_file(question_paper); sd,se=await read_file(marking_scheme); ad,ae=await read_file(answer_sheet)
-    qt=extract(qd,qe); st=extract(sd,se); at=extract(ad,ae)
+    qt=extract(qd,qe); st=extract(sd,se); at=extract(ad,ae,handwriting=True)
     criteria=rubric(st)
     if not criteria: raise HTTPException(422,"No marking criteria found. Use one line per criterion, e.g. Q1: expected answer | marks: 5")
     rows=[]; total=maximum=0.0
@@ -238,6 +324,8 @@ async def evaluate(question_paper:UploadFile=File(...),marking_scheme:UploadFile
         eid=cur.lastrowid
         row=db.execute("""SELECT e.*,s.name,s.roll_no FROM evaluations e JOIN students s ON s.id=e.student_id WHERE e.id=?""",(eid,)).fetchone()
     report=evaluation_dict(row)
+    report["answer_recognition"]="TrOCR small handwritten, line-by-line"
+    report["answer_recognition_mode"]="handwriting_htr"
     report["scoring_method"]="offline_semantic_plus_lexical_estimate"
     report["semantic_model"]="sentence-transformers/all-MiniLM-L6-v2"
     report["teacher_review_required"]=True
